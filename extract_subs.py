@@ -36,7 +36,6 @@ def detect_language(track_props):
     return None
 
 def is_text_subtitle(codec_id):
-    # Дозволяємо витягування текстових субтитрів (SRT, ASS, VTT, PlainText)
     codec = (codec_id or "").lower()
     return any(t in codec for t in ["text", "subrip", "srt", "ass", "ssa", "vtt"])
 
@@ -92,7 +91,7 @@ def process_file(vid_path, root, vid):
     cmd_info = f'mkvmerge -J "{vid_path}"'
     res = subprocess.run(cmd_info, shell=True, stdout=subprocess.PIPE, text=True)
     if res.returncode != 0:
-        print(f"❌ Не вдалося прочитати медіа-дані файлу {vid}")
+        print(f"❌ Не вдалося прочитати дані файлу {vid}")
         return
 
     try:
@@ -100,17 +99,16 @@ def process_file(vid_path, root, vid):
     except Exception:
         return
 
-    # Відбираємо тільки сумісні текстові субтитри
     sub_tracks = [
         t for t in tracks 
         if t.get("type") == "subtitles" and is_text_subtitle(t.get("codec"))
     ]
 
     if not sub_tracks:
-        print(f"ℹ️ У {vid} немає текстових субтитрів (можливо PGS/VobSub картиночні).")
+        print(f"ℹ️ У {vid} немає текстових субтитрів.")
         return
 
-    print(f"🎬 Знайдено текстові доріжки у: {vid}")
+    print(f"🎬 Знайдено доріжки у: {vid}")
 
     found_tracks = {"ukr": None, "rus": None, "eng": None}
     other_sub_ids = []
@@ -130,26 +128,26 @@ def process_file(vid_path, root, vid):
 
     # 1. Витяг UKR
     if found_tracks["ukr"] is not None and not has_ukr:
-        print(f"  📥 Витяг UKR track ID {found_tracks['ukr']}...")
+        print(f"  📥 Витяг UKR ID {found_tracks['ukr']}...")
         subprocess.run(f'mkvextract tracks "{vid_path}" {found_tracks["ukr"]}:"{ukr_srt}"', shell=True)
         srt_to_vtt(ukr_srt, os.path.join(root, f"{base_name}.ukr.vtt"))
         has_ukr = True
 
     # 2. Витяг RUS
     if found_tracks["rus"] is not None and not has_rus:
-        print(f"  📥 Витяг RUS track ID {found_tracks['rus']}...")
+        print(f"  📥 Витяг RUS ID {found_tracks['rus']}...")
         subprocess.run(f'mkvextract tracks "{vid_path}" {found_tracks["rus"]}:"{rus_srt}"', shell=True)
         srt_to_vtt(rus_srt, os.path.join(root, f"{base_name}.rus.vtt"))
         has_rus = True
 
     # 3. Витяг ENG
     if found_tracks["eng"] is not None and not has_eng:
-        print(f"  📥 Витяг ENG track ID {found_tracks['eng']}...")
+        print(f"  📥 Витяг ENG ID {found_tracks['eng']}...")
         subprocess.run(f'mkvextract tracks "{vid_path}" {found_tracks["eng"]}:"{eng_srt}"', shell=True)
         srt_to_vtt(eng_srt, os.path.join(root, f"{base_name}.eng.vtt"))
         has_eng = True
 
-    # 4. Переклад на UKR, якщо немає ні UKR, ні RUS
+    # 4. Переклад на UKR за відсутності UKR та RUS
     if not has_ukr and not has_rus:
         source_sub = None
         if os.path.exists(eng_srt):
@@ -160,7 +158,7 @@ def process_file(vid_path, root, vid):
             source_sub = fallback_path
 
         if source_sub and os.path.exists(source_sub):
-            print(f"  🌐 Переклад субтитрів на UKR через Llama 3...")
+            print(f"  🌐 Переклад субтитрів на UKR...")
             translate_srt_file(source_sub, ukr_srt)
             srt_to_vtt(ukr_srt, os.path.join(root, f"{base_name}.ukr.vtt"))
             if "fallback" in source_sub and os.path.exists(source_sub):
@@ -181,10 +179,7 @@ def main():
                 vid_path = os.path.join(root, vid)
                 process_file(vid_path, root, vid)
 
-    if found_videos == 0:
-        print("⚠️ Відеофайлів (.mkv, .mp4) у папці не виявлено. Перевірте вміст папки Torrents.")
-    else:
-        print(f"✅ Перевірено відеофайлів: {found_videos}")
+    print(f"✅ Перевірено відеофайлів: {found_videos}")
 
 if __name__ == "__main__":
     main()
