@@ -26,24 +26,27 @@ jobs:
       - name: Configure rclone
         run: |
           mkdir -p ~/.config/rclone
-          echo "${{ secrets.RCLONE_CONFIG }}" > ~/.config/rclone/rclone.conf
+          cat << 'EOF' > ~/.config/rclone/rclone.conf
+          ${{ secrets.RCLONE_CONFIG }}
+          EOF
 
       - name: Mount Google Drive (Torrents folder)
         run: |
-          mkdir -p /mnt/gdrive
-          rclone mount gdrive:Torrents /mnt/gdrive --vfs-cache-mode writes --daemon
+          mkdir -p "$HOME/gdrive"
+          rclone mount gdrive:Torrents "$HOME/gdrive" --vfs-cache-mode writes --daemon
           sleep 5
 
       - name: Run extraction script
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GDRIVE_DIR: ${{ runner.temp }}/../gdrive
         run: |
           python3 extract_subs.py
 
       - name: Sync subtitles back to Drive
         if: always()
         run: |
-          rclone copy /mnt/gdrive gdrive:Torrents --include "*.srt" --include "*.vtt"
+          rclone copy "$HOME/gdrive" gdrive:Torrents --include "*.srt" --include "*.vtt"
 
       - name: Telegram notification
         if: always()
