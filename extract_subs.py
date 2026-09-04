@@ -4,7 +4,6 @@ import json
 import subprocess
 from groq import Groq
 
-# Папка монтування в домашньому каталозі раннера
 WORK_DIR = os.environ.get("GDRIVE_DIR", os.path.expanduser("~/gdrive"))
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
@@ -17,7 +16,6 @@ ALLOWED_LANGS = {
 }
 
 def srt_to_vtt(srt_path, vtt_path):
-    """Конвертація SRT у чистий VTT для плеєра."""
     try:
         with open(srt_path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
@@ -25,8 +23,9 @@ def srt_to_vtt(srt_path, vtt_path):
         body = re.sub(r'\{.*?\}', '', body)
         with open(vtt_path, "w", encoding="utf-8") as f:
             f.write("WEBVTT\n\n" + body.strip() + "\n")
+        print(f"  ✓ Створено VTT: {os.path.basename(vtt_path)}")
     except Exception as e:
-        print(f"⚠️ Помилка конвертації в VTT: {e}")
+        print(f"  ⚠️ Помилка створення VTT: {e}")
 
 def detect_language(track_props):
     lang = track_props.get("language", "").lower()
@@ -37,16 +36,16 @@ def detect_language(track_props):
     return None
 
 def is_text_subtitle(codec_id):
-    """Перевіряє, чи субтитри текстові, а не бінарні картинки (PGS/VobSub)."""
+    # Дозволяємо витягування текстових субтитрів (SRT, ASS, VTT, PlainText)
     codec = (codec_id or "").lower()
-    return any(t in codec for t in ["text", "subrip", "srt", "ass", "ssa"])
+    return any(t in codec for t in ["text", "subrip", "srt", "ass", "ssa", "vtt"])
 
 def translate_lines_to_ukr(lines):
     if not lines or not groq_client:
         return lines
     prompt = (
         "Translate these movie subtitle lines into natural Ukrainian. "
-        "Keep speaker labels and timing cues intact. "
+        "Keep speaker labels and timing intact. "
         "Return ONLY a JSON array of strings corresponding 1:1 to inputs.\n"
         f"Input:\n{json.dumps(lines, ensure_ascii=False)}"
     )
@@ -63,13 +62,13 @@ def translate_lines_to_ukr(lines):
                 return data[k]
         return lines
     except Exception as e:
-        print(f"⚠️ Помилка API перекладу: {e}")
+        print(f"  ⚠️ Помилка Groq API: {e}")
         return lines
 
 def translate_srt_file(src_srt, dest_srt):
     import pysrt
     subs = pysrt.open(src_srt, encoding="utf-8", errors="ignore")
-    chunk_size = 60
+    chunk_size = 50
     for i in range(0, len(subs), chunk_size):
         chunk = subs[i:i + chunk_size]
         raw_text = [s.text for s in chunk]
@@ -77,6 +76,7 @@ def translate_srt_file(src_srt, dest_srt):
         for s, t in zip(chunk, translated):
             s.text = t
     subs.save(dest_srt, encoding="utf-8")
+    print(f"  ✓ Створено переклад UKR: {os.path.basename(dest_srt)}")
 
 def process_file(vid_path, root, vid):
     base_name = os.path.splitext(vid)[0]
@@ -92,6 +92,7 @@ def process_file(vid_path, root, vid):
     cmd_info = f'mkvmerge -J "{vid_path}"'
     res = subprocess.run(cmd_info, shell=True, stdout=subprocess.PIPE, text=True)
     if res.returncode != 0:
+        print(f"❌ Не вдалося прочитати медіа-дані файлу {vid}")
         return
 
     try:
@@ -99,13 +100,17 @@ def process_file(vid_path, root, vid):
     except Exception:
         return
 
-    # Фільтруємо лише текстові субтитри
+    # Відбираємо тільки сумісні текстові субтитри
     sub_tracks = [
         t for t in tracks 
         if t.get("type") == "subtitles" and is_text_subtitle(t.get("codec"))
     ]
+
     if not sub_tracks:
+        print(f"ℹ️ У {vid} немає текстових субтитрів (можливо PGS/VobSub картиночні).")
         return
+
+    print(f"🎬 Знайдено текстові доріжки у: {vid}")
 
     found_tracks = {"ukr": None, "rus": None, "eng": None}
     other_sub_ids = []
@@ -123,28 +128,28 @@ def process_file(vid_path, root, vid):
         else:
             other_sub_ids.append(track_id)
 
-    # 1. Витягування UKR (якщо немає)
+    # 1. Витяг UKR
     if found_tracks["ukr"] is not None and not has_ukr:
-        print(f"📥 Витягуємо UKR: {vid}")
+        print(f"  📥 Витяг UKR track ID {found_tracks['ukr']}...")
         subprocess.run(f'mkvextract tracks "{vid_path}" {found_tracks["ukr"]}:"{ukr_srt}"', shell=True)
         srt_to_vtt(ukr_srt, os.path.join(root, f"{base_name}.ukr.vtt"))
         has_ukr = True
 
-    # 2. Витягування RUS (якщо немає)
+    # 2. Витяг RUS
     if found_tracks["rus"] is not None and not has_rus:
-        print(f"📥 Витягуємо RUS: {vid}")
+        print(f"  📥 Витяг RUS track ID {found_tracks['rus']}...")
         subprocess.run(f'mkvextract tracks "{vid_path}" {found_tracks["rus"]}:"{rus_srt}"', shell=True)
         srt_to_vtt(rus_srt, os.path.join(root, f"{base_name}.rus.vtt"))
         has_rus = True
 
-    # 3. Витягування ENG (якщо немає)
+    # 3. Витяг ENG
     if found_tracks["eng"] is not None and not has_eng:
-        print(f"📥 Витягуємо ENG: {vid}")
+        print(f"  📥 Витяг ENG track ID {found_tracks['eng']}...")
         subprocess.run(f'mkvextract tracks "{vid_path}" {found_tracks["eng"]}:"{eng_srt}"', shell=True)
         srt_to_vtt(eng_srt, os.path.join(root, f"{base_name}.eng.vtt"))
         has_eng = True
 
-    # 4. Переклад на UKR (якщо немає ані UKR, ані RUS)
+    # 4. Переклад на UKR, якщо немає ні UKR, ні RUS
     if not has_ukr and not has_rus:
         source_sub = None
         if os.path.exists(eng_srt):
@@ -155,7 +160,7 @@ def process_file(vid_path, root, vid):
             source_sub = fallback_path
 
         if source_sub and os.path.exists(source_sub):
-            print(f"🌐 Немає UKR/RUS. Перекладаємо на UKR через Groq API ({vid})...")
+            print(f"  🌐 Переклад субтитрів на UKR через Llama 3...")
             translate_srt_file(source_sub, ukr_srt)
             srt_to_vtt(ukr_srt, os.path.join(root, f"{base_name}.ukr.vtt"))
             if "fallback" in source_sub and os.path.exists(source_sub):
@@ -166,14 +171,20 @@ def main():
         print(f"❌ Директорію {WORK_DIR} не знайдено!")
         return
 
-    print(f"🔍 Сканування папки: {WORK_DIR} ...")
+    print(f"🔍 Сканування директорії: {WORK_DIR}")
+    found_videos = 0
+
     for root, _, files in os.walk(WORK_DIR):
         for vid in files:
-            if vid.lower().endswith(('.mkv', '.mp4')):
+            if vid.lower().endswith(('.mkv', '.mp4', '.m4v')):
+                found_videos += 1
                 vid_path = os.path.join(root, vid)
                 process_file(vid_path, root, vid)
 
-    print("✅ Обробку субтитрів завершено.")
+    if found_videos == 0:
+        print("⚠️ Відеофайлів (.mkv, .mp4) у папці не виявлено. Перевірте вміст папки Torrents.")
+    else:
+        print(f"✅ Перевірено відеофайлів: {found_videos}")
 
 if __name__ == "__main__":
     main()
