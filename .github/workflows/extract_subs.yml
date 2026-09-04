@@ -47,8 +47,10 @@ jobs:
         if: always()
         run: |
           sync
-          # Прямий пуш створених субтитрів безпосередньо у сховище Google Drive
-          rclone copy "$HOME/gdrive" gdrive:Torrents --include "*.srt" --include "*.vtt" -v
+          sleep 2
+          fusermount -u "$HOME/gdrive" || sudo umount -l "$HOME/gdrive" || true
+          sleep 2
+          rclone copy "$HOME/gdrive" gdrive:Torrents --include "*.srt" --include "*.vtt" --local-no-check-updated -v
 
       - name: Telegram notification
         if: always()
