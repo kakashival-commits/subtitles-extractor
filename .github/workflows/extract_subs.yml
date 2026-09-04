@@ -1,52 +1,51 @@
 name: Extract Subtitles
 
 on:
-  workflow_dispatch: # Ручний запуск з сайту GitHub
+  workflow_dispatch:
   repository_dispatch:
-    types: [start_subtitle_extraction] # Запуск по сигналу від Telegram-бота
+    types: [start_subtitle_extraction]
 
 jobs:
   extract:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout репозиторію
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Встановлення Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Встановлення інструментів
+      - name: Install system packages and tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y mkvtoolnix rclone -qq
+          sudo apt-get install -y mkvtoolnix rclone fuse3 -qq
           pip install pysrt groq requests
 
-      - name: Налаштування rclone для Google Drive
+      - name: Configure rclone
         run: |
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONFIG }}" > ~/.config/rclone/rclone.conf
 
-      - name: Монтування Google Диску
+      - name: Mount Google Drive
         run: |
           mkdir -p /mnt/gdrive
           rclone mount gdrive: /mnt/gdrive --vfs-cache-mode writes --daemon
           sleep 5
 
-      - name: Запуск Python-скрипта витягування
+      - name: Run extraction script
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           python3 extract_subs.py
 
-      - name: Синхронізація створених субтитрів на Drive
+      - name: Sync subtitles back to Drive
         if: always()
         run: |
-          # Гарантує запис усіх створених .srt і .vtt на Google Диск
           rclone copy /mnt/gdrive gdrive: --include "*.srt" --include "*.vtt"
 
-      - name: Сповіщення у Telegram про завершення
+      - name: Telegram notification
         if: always()
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
