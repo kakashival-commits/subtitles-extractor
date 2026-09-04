@@ -28,10 +28,10 @@ jobs:
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONFIG }}" > ~/.config/rclone/rclone.conf
 
-      - name: Mount Google Drive
+      - name: Mount Google Drive (Torrents folder)
         run: |
           mkdir -p /mnt/gdrive
-          rclone mount gdrive: /mnt/gdrive --vfs-cache-mode writes --daemon
+          rclone mount gdrive:Torrents /mnt/gdrive --vfs-cache-mode writes --daemon
           sleep 5
 
       - name: Run extraction script
@@ -43,11 +43,11 @@ jobs:
       - name: Sync subtitles back to Drive
         if: always()
         run: |
-          rclone copy /mnt/gdrive gdrive: --include "*.srt" --include "*.vtt"
+          rclone copy /mnt/gdrive gdrive:Torrents --include "*.srt" --include "*.vtt"
 
       - name: Telegram notification
         if: always()
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
             -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -d "text=✅ GitHub Actions: Обробку субтитрів на Google Диску завершено!"
+            -d "text=✅ GitHub Actions: Обробку субтитрів у папці Torrents завершено!"
